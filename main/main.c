@@ -255,6 +255,10 @@ void enviar_datos() {
 void iniciar_ntp() {
     ESP_LOGI("NTP", "Iniciando SNTP...");
 
+    // Configurar zona horaria de México (CDMX)
+    setenv("TZ", "CST6CDT,M4.1.0/2,M10.5.0/2", 1);
+    tzset();
+
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
     sntp_setservername(0, "pool.ntp.org");
     sntp_init();
@@ -278,6 +282,7 @@ void iniciar_ntp() {
         ESP_LOGE("NTP", "No se pudo sincronizar la hora");
     }
 }
+
 
 void app_main()
 {
