@@ -1,3 +1,5 @@
-idf_component_register(SRCS "main.c"
-                    INCLUDE_DIRS "."
-                    EMBED_TXTFILES "cert/certificado_ca.pem")
+idf_component_register(
+    SRCS "main.c"
+    INCLUDE_DIRS "."
+    EMBED_TXTFILES "cert/certificado_ca.pem" "cert/emqxsl_ca.pem"
+)

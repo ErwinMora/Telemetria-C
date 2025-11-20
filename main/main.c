@@ -13,18 +13,29 @@
 #include "esp_rom_sys.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "mqtt_client.h"
+#include "esp_system.h"
 
 // Configuración de WiFi
 #define WIFI_SSID "A54 de Erwin"
-#define WIFI_PASSWORD "123456700"
+#define WIFI_PASSWORD "1234567000E"
+
+#define MQTT_URI "mqtts://n2f66ba0.ala.us-east-1.emqxsl.com:8883"
+#define MQTT_USERNAME "Erwin"
+#define MQTT_PASSWORD "170804E"
+#define MQTT_TOPIC "esp32/telemetria"
+// #define WIFI_SSID "HOME-0847"
+// #define WIFI_PASSWORD "16E82A8ABD97DE9"
 
 #define URL_SERVIDOR "https://telemetria-rest.onrender.com/api/telemetria/guardar-telemetria" // API del servidor BackEnd para guardar los datos
 // #define URL_SERVIDOR "http://172.29.120.3:3100/api/telemetria/guardar-telemetria" // API del servidor BackEnd para guardar los datos
-#define INTERVALO_MS 180000 // Intervalo de 12s entre lecturas
-#define DHT_PIN GPIO_NUM_4 // Pin GPIO donde esta conectado el DHT22
+#define INTERVALO_MS 180000 // Intervalo de 3min entre lecturas
+#define DHT_PIN GPIO_NUM_4
 
 static const char *TAG = "ESP32";
 extern const char ca_cert_pem[] asm("_binary_certificado_ca_pem_start"); // Certificado CA
+extern const uint8_t emqx_ca_cert_pem_start[] asm("_binary_emqxsl_ca_pem_start");
+extern const uint8_t emqx_ca_cert_pem_end[]   asm("_binary_emqxsl_ca_pem_end");
 
 #define DHT_MAX_TIMINGS 85
 #define DHT_TIMEOUT 1000
@@ -129,6 +140,50 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
     }
 }
 
+// Funcion para manejar eventos MQTT
+static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
+    esp_mqtt_event_handle_t event = event_data;
+    switch (event_id) {
+        case MQTT_EVENT_CONNECTED:
+            ESP_LOGI("MQTT", "Conectado al broker");
+            break;
+
+        case MQTT_EVENT_DISCONNECTED:
+            ESP_LOGI("MQTT", "Desconectado del broker");
+            break;
+
+        case MQTT_EVENT_PUBLISHED:
+            ESP_LOGI("MQTT", "Mensaje publicado");
+            break;
+
+        default:
+            break;
+    }
+}
+
+esp_mqtt_client_handle_t mqtt_client;
+
+// Función para inicializar MQTT
+void mqtt_init() {
+    esp_mqtt_client_config_t mqtt_cfg = {
+        .broker = {
+            .address.uri = MQTT_URI,
+            .verification.certificate = (const char *)emqx_ca_cert_pem_start
+        },
+        .credentials = {
+            .username = MQTT_USERNAME,
+            .authentication.password = MQTT_PASSWORD,
+        }
+    };
+
+    mqtt_client = esp_mqtt_client_init(&mqtt_cfg);
+    esp_mqtt_client_register_event(mqtt_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
+    esp_mqtt_client_start(mqtt_client);
+
+    ESP_LOGI("MQTT", "Inicializando MQTT...");
+}
+
+
 // Función para enviar los datos del sensor al servidor
 void enviar_datos() {
     float temperatura = 0;
@@ -172,6 +227,9 @@ void enviar_datos() {
         .timeout_ms = 5000,
         .cert_pem = ca_cert_pem,
     };
+        // Publicar JSON a MQTT
+    esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC, json_final, 0, 1, 0);
+    ESP_LOGI("MQTT", "Publicado a MQTT: %s", json_final);
 
     esp_http_client_handle_t cliente = esp_http_client_init(&config);
     esp_http_client_set_header(cliente, "Content-Type", "application/json");
@@ -261,6 +319,7 @@ void app_main()
 
     // Esperar a que se establezca la conexión WiFi
     vTaskDelay(pdMS_TO_TICKS(3000));
+    mqtt_init();
     iniciar_ntp();
 
     // Bucle principal
