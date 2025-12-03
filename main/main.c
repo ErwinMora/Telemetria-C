@@ -15,6 +15,7 @@
 #include "freertos/task.h"
 #include "mqtt_client.h"
 #include "esp_system.h"
+#include "stdlib.h"
 
 // Configuración de WiFi
 #define WIFI_SSID "A54 de Erwin"
@@ -24,13 +25,11 @@
 #define MQTT_USERNAME "Erwin"
 #define MQTT_PASSWORD "170804E"
 #define MQTT_TOPIC "esp32/telemetria"
-// #define WIFI_SSID "HOME-0847"
-// #define WIFI_PASSWORD "16E82A8ABD97DE9"
 
 #define URL_SERVIDOR "https://telemetria-rest.onrender.com/api/telemetria/guardar-telemetria" // API del servidor BackEnd para guardar los datos
-// #define URL_SERVIDOR "http://172.29.120.3:3100/api/telemetria/guardar-telemetria" // API del servidor BackEnd para guardar los datos
-#define INTERVALO_MS 180000 // Intervalo de 3min entre lecturas
+//#define URL_SERVIDOR "http://10.98.44.3:3100/api/telemetria/guardar-telemetria" // API del servidor BackEnd para guardar los datos
 #define DHT_PIN GPIO_NUM_4
+// #define FF 180000 // Intervalo de 3min entre lecturas
 
 static const char *TAG = "ESP32";
 extern const char ca_cert_pem[] asm("_binary_certificado_ca_pem_start"); // Certificado CA
@@ -39,6 +38,12 @@ extern const uint8_t emqx_ca_cert_pem_end[]   asm("_binary_emqxsl_ca_pem_end");
 
 #define DHT_MAX_TIMINGS 85
 #define DHT_TIMEOUT 1000
+
+uint32_t intervalo_ms = 0; // variable dinámica
+// Función para obtener intervalo aleatorio entre 10s y 60s
+uint32_t generar_intervalo() {
+    return (10 + rand() % 51) * 1000; 
+}
 
 bool dht22_leer(float *temperatura, float *humedad) {
     uint8_t data[5] = {0, 0, 0, 0, 0};
@@ -213,10 +218,13 @@ void enviar_datos() {
     cJSON_AddItemToObject(root, "telemetria", telemetria);
 
     time_t now = time(NULL);
-    struct tm *info = gmtime(&now);
-    char timestamp[30];
-    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", info);
+    struct tm info;
+    localtime_r(&now, &info); 
+
+    char timestamp[32];
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S%z", &info);
     cJSON_AddStringToObject(root, "timestamp", timestamp);
+
 
     char *json_final = cJSON_Print(root);
     ESP_LOGI(TAG, "JSON a enviar:\n%s", json_final);
@@ -255,7 +263,7 @@ void enviar_datos() {
 void iniciar_ntp() {
     ESP_LOGI("NTP", "Iniciando SNTP...");
 
-    // Configurar zona horaria de México (CDMX)
+    // Zona horaria correcta para México (Centro)
     setenv("TZ", "CST6CDT,M4.1.0/2,M10.5.0/2", 1);
     tzset();
 
@@ -263,12 +271,11 @@ void iniciar_ntp() {
     sntp_setservername(0, "pool.ntp.org");
     sntp_init();
 
-    // Esperar a la sincronización
     time_t now = 0;
     struct tm timeinfo = {0};
 
     int intentos = 0;
-    while (timeinfo.tm_year < (2024 - 1900) && intentos < 15) {
+    while (timeinfo.tm_year < (2016 - 1900) && intentos < 15) {
         time(&now);
         localtime_r(&now, &timeinfo);
         ESP_LOGI("NTP", "Esperando sincronización (%d)...", intentos);
@@ -276,12 +283,13 @@ void iniciar_ntp() {
         intentos++;
     }
 
-    if (timeinfo.tm_year >= (2024 - 1900)) {
+    if (timeinfo.tm_year >= (2016 - 1900)) {
         ESP_LOGI("NTP", "Hora sincronizada correctamente");
     } else {
         ESP_LOGE("NTP", "No se pudo sincronizar la hora");
     }
 }
+
 
 
 void app_main()
@@ -328,9 +336,11 @@ void app_main()
     iniciar_ntp();
 
     // Bucle principal
-    while (1)
-    {
-        enviar_datos();
-        vTaskDelay(pdMS_TO_TICKS(INTERVALO_MS));
+    while (1) {
+    enviar_datos();
+    // Generar nuevo intervalo
+    intervalo_ms = generar_intervalo();
+    ESP_LOGI(TAG, "Esperando %d ms antes de la siguiente lectura", intervalo_ms);
+        vTaskDelay(pdMS_TO_TICKS(intervalo_ms));
     }
 }
